@@ -123,6 +123,36 @@ def checkargs(exact=None, min=None, max=None):
     return _dec
 
 
+class CompilerResult(object):
+    __slots__ = ("imports", "stmts", "exprs", "ref")
+
+    def __init__(self, *args, **kwargs):
+        if args:
+            # emulate kw-only args for future bits.
+            raise HyCompileError("Yo: Hacker: don't pass me real args, dingus")
+
+        self.imports = []
+        self.stmts = []
+        self.exprs = []
+        self.ref = None
+
+        # XXX: Check that kwarg type matches expected stuff.
+        # XXX: Make sure we only have AST where we should.
+        for kwarg in kwargs:
+            setattr(self, kwarg, kwargs[kwarg])
+
+    def __add__(self, other):
+        if not isinstance(other, CompilerResult):
+            raise HyCompileError("Can't add with non-compiler result")
+
+        result = CompilerResult()
+        result.imports = self.imports + other.imports
+        result.stmts = self.stmts + other.stmts
+        result.exprs = self.exprs + other.exprs
+        result.ref = other.ref
+        return result
+
+
 class HyASTCompiler(object):
 
     def __init__(self):
