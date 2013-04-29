@@ -32,6 +32,8 @@ from hy.models.float import HyFloat
 from hy.models.list import HyList
 from hy.models.dict import HyDict
 
+from hy.util import str_type
+
 import codecs
 import ast
 import sys
@@ -62,45 +64,87 @@ def builds(_type):
 
 
 class Result(object):
-    __slots__ = ("imports", "stmts", "exprs", "ref")
+    __slots__ = ("imports", "stmts", "_expr", "ref", "__used_expr")
 
     def __init__(self, *args, **kwargs):
         if args:
             # emulate kw-only args for future bits.
-            raise HyCompileError("Yo: Hacker: don't pass me real args, dingus")
+            raise TypeError("Yo: Hacker: don't pass me real args, dingus")
 
         self.imports = []
         self.stmts = []
-        self.exprs = []
+        self._expr = None
         self.ref = None
 
-        # XXX: Check that kwarg type matches expected stuff.
+        self.__used_expr = False
+
         # XXX: Make sure we only have AST where we should.
         for kwarg in kwargs:
+            if kwarg not in ["imports", "stmts", "expr", "ref"]:
+                raise TypeError(
+                    "%s() got an unexpected keyword argument '%s'" % (
+                        self.__class__.__name__, kwarg))
             setattr(self, kwarg, kwargs[kwarg])
 
     @property
     def expr(self):
-        if len(self.exprs) != 1:
-            raise Exception("Expr suckage.")
-        return self.exprs.pop(0)
+        self.__used_expr = True
+        return self._expr
 
-    @property
-    def stmt(self):
-        if len(self.stmts) != 1:
-            raise Exception("Stmt suckage.")
-        return self.stmts.pop(0)
+    @expr.setter
+    def expr(self, value):
+        self.__used_expr = False
+        self._expr = value
+
+    def as_ast_expr(self):
+        if self.expr:
+            return ast.Expr(
+                lineno=self.expr.lineno,
+                col_offset=self.expr.col_offset,
+                value=self.expr,
+            )
+        else:
+            return None
 
     def __add__(self, other):
+        if isinstance(other, ast.stmt):
+            return self + Result(stmts=[other])
+        if isinstance(other, ast.expr):
+            return self + Result(expr=other)
         if not isinstance(other, Result):
-            raise HyCompileError("Can't add with non-compiler result")
+            raise TypeError("Can't add %r with non-compiler result %r" % (
+                self, other))
+
+        if self.expr and not self.__used_expr:
+            import traceback
+            traceback.print_stack()
+            print("Bad boy clobbered expr %s with %s" % (
+                ast.dump(self.expr),
+                ast.dump(other.expr)))
 
         result = Result()
         result.imports = self.imports + other.imports
         result.stmts = self.stmts + other.stmts
-        result.exprs = self.exprs + other.exprs
+        result.expr = other.expr
         result.ref = other.ref
         return result
+
+    def __str__(self):
+        return "Result(imports=[%s], stmts=[%s], expr=%s, ref=%s)" % (
+            ", ".join(ast.dump(x) for x in self.imports),
+            ", ".join(ast.dump(x) for x in self.stmts),
+            ast.dump(self.expr) if self.expr else None,
+            ast.dump(self.ref) if self.ref else None,
+        )
+
+
+def _collect(results):
+    compiled_exprs = []
+    ret = Result()
+    for result in results:
+        ret += result
+        compiled_exprs.append(ret.expr)
+    return compiled_exprs, ret
 
 
 class HyASTCompiler(object):
@@ -114,28 +158,41 @@ class HyASTCompiler(object):
     def compile(self, tree):
         _type = type(tree)
         if _type in _compile_table:
-            return _compile_table[_type](self, tree)
+            ret = _compile_table[_type](self, tree)
+            if not isinstance(ret, Result):
+                ret = Result() + ret
+            return ret
 
-        raise HyCompileError(Exception("Unknown type: `%s'" % (
+        raise TypeError(Exception("Unknown type: `%s'" % (
             str(type(tree)))))
+
+    def _compile_collect(self, exprs):
+        return _collect(self.compile(expr) for expr in exprs)
 
     @builds(list)
     def compile_raw_list(self, entries):
-        return [self.compile(x) for x in entries]
+        ret = Result()
+        for x in entries:
+            x = self.compile(x)
+            ret += x
+            if x.expr:
+                # We want to lift this up as an ast.Expr
+                ret += x.as_ast_expr()
+        return ret
 
     @builds("print")
     def compile_print_expression(self, expr):
         call = expr.pop(0)  # print
-        values = self._sum(expr)
+        values, ret = self._compile_collect(expr)
 
-        ret = ast.Print(
+        ret += ast.Print(
             lineno=expr.start_line,
             col_offset=expr.start_column,
             dest=None,
-            values=values.exprs,
+            values=values,
             nl=True)
-        values.exprs = [ret]
-        return values
+
+        return ret
 
     @builds("not")
     @builds("~")
@@ -145,15 +202,11 @@ class HyASTCompiler(object):
         operator = expression.pop(0)
         operand = self.compile(expression.pop(0))
 
-        operand.exprs.append(ast.UnaryOp(op=ops[operator](),
-                                         operand=operand.expr,
-                                         lineno=operator.start_line,
-                                         col_offset=operator.start_column))
+        operand += ast.UnaryOp(op=ops[operator](),
+                               operand=operand.expr,
+                               lineno=operator.start_line,
+                               col_offset=operator.start_column)
         return operand
-
-    def _sum(self, expr):
-        return reduce(lambda x, y: x + y,
-                      (self.compile(x) for x in expr))
 
     @builds("and")
     @builds("or")
@@ -161,14 +214,13 @@ class HyASTCompiler(object):
         ops = {"and": ast.And,
                "or": ast.Or}
         operator = expression.pop(0)
-        values = self._sum(expression)
+        values, ret = self._compile_collect(expression)
 
-        ret = ast.BoolOp(op=ops[operator](),
-                         lineno=operator.start_line,
-                         col_offset=operator.start_column,
-                         values=values.exprs)
-        values.exprs = [ret]
-        return values
+        ret += ast.BoolOp(op=ops[operator](),
+                          lineno=operator.start_line,
+                          col_offset=operator.start_column,
+                          values=values)
+        return ret
 
     @builds(HyExpression)
     def compile_expression(self, expression):
@@ -178,45 +230,44 @@ class HyASTCompiler(object):
                 return _compile_table[fn](self, expression)
 
         func = self.compile(fn)
-        args = (self.compile(x) for x in expression[1:])
+        args, ret = self._compile_collect(expression[1:])
 
-        func.exprs.append(
-            ast.Call(func=func.expr,
-                     args=args.exprs,
-                     keywords=[],
-                     starargs=None,
-                     kwargs=None,
-                     lineno=expression.start_line,
-                     col_offset=expression.start_column))
-        args.exprs = []
-        return args + func
+        ret += ast.Call(func=func.expr,
+                        args=args,
+                        keywords=[],
+                        starargs=None,
+                        kwargs=None,
+                        lineno=expression.start_line,
+                        col_offset=expression.start_column)
+
+        return func + ret
 
     @builds(HyList)
-    def compile_list(self, expr):
-        elts = self._sum(expr)
-        elts.exprs.append(ast.List(elts=elts.exprs,
-                                   ctx=ast.Load(),
-                                   lineno=expr.start_line,
-                                   col_offset=expr.start_column))
-        return elts
+    def compile_list(self, expression):
+        elts, ret = self._compile_collect(expression)
+        ret += ast.List(elts=elts,
+                        ctx=ast.Load(),
+                        lineno=expression.start_line,
+                        col_offset=expression.start_column)
+        return ret
 
     @builds(HyInteger)
     def compile_integer(self, number):
-        return Result(exprs=[ast.Num(n=int(number),
-                                     lineno=number.start_line,
-                                     col_offset=number.start_column)])
+        return ast.Num(n=int(number),
+                       lineno=number.start_line,
+                       col_offset=number.start_column)
 
     @builds(HyFloat)
     def compile_float(self, number):
-        return Result(exprs=[ast.Num(n=float(number),
-                                     lineno=number.start_line,
-                                     col_offset=number.start_column)])
+        return ast.Num(n=float(number),
+                       lineno=number.start_line,
+                       col_offset=number.start_column)
 
     @builds(HyComplex)
     def compile_complex(self, number):
-        return Result(exprs=[ast.Num(n=complex(number),
-                                     lineno=number.start_line,
-                                     col_offset=number.start_column)])
+        return ast.Num(n=complex(number),
+                       lineno=number.start_line,
+                       col_offset=number.start_column)
 
     @builds(HySymbol)
     def compile_symbol(self, symbol):
@@ -225,50 +276,41 @@ class HyASTCompiler(object):
             glob = HySymbol(glob).replace(symbol)
             ret = self.compile_symbol(glob)
 
-            ret.exprs.append(ast.Attribute(
+            ret += ast.Attribute(
                 lineno=symbol.start_line,
                 col_offset=symbol.start_column,
                 value=ret.expr,
                 attr=ast_str(local),
                 ctx=ast.Load()
-            ))
+            )
             return ret
 
-        return Result(exprs=[ast.Name(id=ast_str(symbol),
-                                      arg=ast_str(symbol),
-                                      ctx=ast.Load(),
-                                      lineno=symbol.start_line,
-                                      col_offset=symbol.start_column)])
+        return ast.Name(id=ast_str(symbol),
+                        arg=ast_str(symbol),
+                        ctx=ast.Load(),
+                        lineno=symbol.start_line,
+                        col_offset=symbol.start_column)
 
     @builds(HyString)
     def compile_string(self, string):
-        return Result(exprs=[ast.Str(s=str_type(string),
-                                     lineno=string.start_line,
-                                     col_offset=string.start_column)])
+        return ast.Str(s=str_type(string),
+                       lineno=string.start_line,
+                       col_offset=string.start_column)
 
     @builds(HyKeyword)
     def compile_keyword(self, keyword):
-        return Result(exprs=[ast.Str(s=str_type(keyword),
-                                     lineno=keyword.start_line,
-                                     col_offset=keyword.start_column)])
+        return ast.Str(s=str_type(keyword),
+                       lineno=keyword.start_line,
+                       col_offset=keyword.start_column)
 
     @builds(HyDict)
     def compile_dict(self, m):
-        ret = Result()
-        keys = []
-        vals = []
-        for entry in m:
-            k = self.compile(entry)
-            v = self.compile(m[entry])
-            keys.append(k.expr)
-            vals.append(v.expr)
-            ret += k + v
+        keyvalues, ret = self._compile_collect(sum(m.items(), ()))
 
-        ret.exprs.append(ast.Dict(
-            lineno=m.start_line,
-            col_offset=m.start_column,
-            keys=keys,
-            values=vals))
+        ret += ast.Dict(lineno=m.start_line,
+                        col_offset=m.start_column,
+                        keys=keyvalues[::2],
+                        values=keyvalues[1::2])
         return ret
 
 
@@ -280,8 +322,9 @@ def hy_compile(tree, root=None):
         tlo = ast.Module
 
     result = compiler.compile(tree)
-    if isinstance(result, list):
-        result = reduce(lambda x, y: x + y, result)
 
-    ret = tlo(body=result.stmts + result.exprs)
-    return ret
+    body = result.imports + result.stmts
+    if result.expr:
+        body += result.as_ast_expr()
+
+    return tlo(body=body)
