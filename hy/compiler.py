@@ -85,7 +85,7 @@ class Result(object):
     been accessed.
 
     The Result object is interoperable with python AST objects: when an AST
-    object gets added to a Result object, they are converted on-the-fly.
+    object gets added to a Result object, it gets converted on-the-fly.
     """
     __slots__ = ("imports", "stmts", "_expr", "__used_expr")
 
