@@ -296,6 +296,62 @@ class HyASTCompiler(object):
                         col_offset=expression.start_column)
         return ret
 
+    @builds("if")
+    def compile_if(self, expression):
+        expression.pop(0)
+        cond = self.compile(expression.pop(0))
+
+
+        body = self.compile(expression.pop(0))
+        orel = Result()
+        if expression:
+            orel = self.compile(expression.pop(0))
+
+        # We want to hoist the statements from the condition
+        ret = cond
+
+        if body.stmts or orel.stmts:
+            # We have statements in our bodies
+            # Get a temporary variable for the result storage
+            var = self.get_anon_var()
+            name = ast.Name(id=ast_str(var), arg=ast_str(var),
+                            ctx=ast.Store(),
+                            lineno=expression.start_line,
+                            col_offset=expression.start_column)
+
+            # Store the result of the body
+            body += ast.Assign(targets=[name],
+                               value=body.force_expr,
+                               lineno=expression.start_line,
+                               col_offset=expression.start_column)
+
+            # and of the else clause
+            orel += ast.Assign(targets=[name],
+                               value=orel.force_expr,
+                               lineno=expression.start_line,
+                               col_offset=expression.start_column)
+
+            # Then build the if
+            ret += ast.If(test=ret.force_expr,
+                          body=body.stmts,
+                          orelse=orel.stmts,
+                          lineno=expression.start_line,
+                          col_offset=expression.start_column)
+
+            # And make our expression context our temp variable
+            ret += ast.Name(id=ast_str(var), arg=ast_str(var),
+                            ctx=ast.Load(),
+                            lineno=expression.start_line,
+                            col_offset=expression.start_column)
+        else:
+            # Just make that an if expression
+            ret += ast.IfExp(test=ret.force_expr,
+                             body=body.force_expr,
+                             orelse=orel.force_expr,
+                             lineno=expression.start_line,
+                             col_offset=expression.start_column)
+        return ret
+
     @builds(HyExpression)
     def compile_expression(self, expression):
         fn = expression[0]
