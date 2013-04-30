@@ -180,6 +180,9 @@ class HyASTCompiler(object):
         self.returnable = False
         self.anon_fn_count = 0
 
+    def get_anon_fn(self):
+        self.anon_fn_count += 1
+        return "_hy_anon_fn_%d" % self.anon_fn_count
 
     def compile(self, tree):
         _type = type(tree)
@@ -253,8 +256,7 @@ class HyASTCompiler(object):
     def compile_function_def(self, expression):
         expression.pop(0)
 
-        self.anon_fn_count += 1
-        name = "_hy_anon_fn_%d" % (self.anon_fn_count)
+        name = self.get_anon_fn()
 
         arg_list = self.compile(expression.pop(0))
         body = self._compile_branch(expression)
@@ -282,6 +284,11 @@ class HyASTCompiler(object):
                                body=body.stmts,
                                decorator_list=[])
 
+        ret += ast.Name(id=name,
+                        arg=name,
+                        ctx=ast.Load(),
+                        lineno=expression.start_line,
+                        col_offset=expression.start_column)
         return ret
 
     @builds(HyExpression)
