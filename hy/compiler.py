@@ -180,8 +180,6 @@ class HyASTCompiler(object):
         self.returnable = False
         self.anon_fn_count = 0
 
-    def is_returnable(self, v):
-        return temporary_attribute_value(self, "returnable", v)
 
     def compile(self, tree):
         _type = type(tree)
