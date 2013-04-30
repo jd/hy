@@ -64,6 +64,29 @@ def builds(_type):
 
 
 class Result(object):
+    """
+    Smart representation of the result of a hy->AST compilation
+
+    This object tries to reconcile the hy world, where everything can be used
+    as an expression, with the Python world, where statements and expressions
+    need to coexist.
+
+    To do so, we represent a compiler result as a list of statements `stmts`,
+    terminated by an expression context `expr`. The expression context is used
+    when the compiler needs to use the result as an expression.
+
+    Results are chained by addition: adding two results together returns a
+    Result representing the succession of the two Results' statements, with
+    the second Result's expression context.
+
+    We make sure that a non-empty expression context does not get clobbered by
+    adding more results, by checking accesses to the expression context. We
+    assume that the context has been used, or deliberately ignored, if it has
+    been accessed.
+
+    The Result object is interoperable with python AST objects: when an AST
+    object gets added to a Result object, they are converted on-the-fly.
+    """
     __slots__ = ("imports", "stmts", "_expr", "ref", "__used_expr")
 
     def __init__(self, *args, **kwargs):
@@ -98,12 +121,18 @@ class Result(object):
 
     @property
     def force_expr(self):
+        """Force the expression context of the Result.
+
+        If there is no expression context, we return a "None" expression.
+        """
         if not self.expr:
+            # Spoof the position of the last statement for our generated None
             lineno = 0
             col_offset = 0
             if self.stmts:
                 lineno = self.stmts[-1].lineno
                 col_offset = self.stmts[-1].col_offset
+
             return ast.Name(id=ast_str("None"),
                             arg=ast_str("None"),
                             ctx=ast.Load(),
@@ -113,6 +142,13 @@ class Result(object):
             return self.expr
 
     def expr_as_stmt(self):
+        """Convert the Result's expression context to a statement
+
+        This is useful when we want to use the stored expression in a
+        statement context (for instance in a code branch).
+
+        If there is no expression context, return an empty result.
+        """
         if self.expr:
             return Result() + ast.Expr(lineno=self.expr.lineno,
                                        col_offset=self.expr.col_offset,
@@ -121,14 +157,19 @@ class Result(object):
             return Result()
 
     def __add__(self, other):
+        # If we add an ast statement, convert it first
         if isinstance(other, ast.stmt):
             return self + Result(stmts=[other])
+
+        # If we add an ast expression, clobber the expression context
         if isinstance(other, ast.expr):
             return self + Result(expr=other)
+
         if not isinstance(other, Result):
             raise TypeError("Can't add %r with non-compiler result %r" % (
                 self, other))
 
+        # Check for expression context clobbering
         if self.expr and not self.__used_expr:
             import traceback
             traceback.print_stack()
@@ -136,6 +177,7 @@ class Result(object):
                 ast.dump(self.expr),
                 ast.dump(other.expr)))
 
+        # Fairly obvious addition
         result = Result()
         result.imports = self.imports + other.imports
         result.stmts = self.stmts + other.stmts
@@ -153,6 +195,11 @@ class Result(object):
 
 
 def _collect(results):
+    """Collect the expression contexts from a list of results
+
+    This returns a list of the expression contexts, and the sum of the Result
+    objects passed as arguments.
+    """
     compiled_exprs = []
     ret = Result()
     for result in results:
@@ -162,17 +209,24 @@ def _collect(results):
 
 
 def _branch(results):
+    """Make a branch out of a list of Result objects
+
+    This generates a Result from the given sequence of Results, forcing each
+    expression context as a statement before the next result is used.
+
+    We keep the expression context of the last argument for the returned Result
+    """
     results = list(results)
     ret = Result()
     for result in results[:-1]:
         ret += result
         ret += result.expr_as_stmt()
 
-    # We don't want to convert the last expr to a stmt, to use it as the return value
     for result in results[-1:]:
         ret += result
 
     return ret
+
 
 class HyASTCompiler(object):
 
@@ -300,7 +354,6 @@ class HyASTCompiler(object):
     def compile_if(self, expression):
         expression.pop(0)
         cond = self.compile(expression.pop(0))
-
 
         body = self.compile(expression.pop(0))
         orel = Result()
