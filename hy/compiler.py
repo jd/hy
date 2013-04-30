@@ -179,6 +179,11 @@ class HyASTCompiler(object):
     def __init__(self):
         self.returnable = False
         self.anon_fn_count = 0
+        self.anon_var_count = 0
+
+    def get_anon_var(self):
+        self.anon_var_count += 1
+        return "_hy_anon_var_%s" % self.anon_var_count
 
     def get_anon_fn(self):
         self.anon_fn_count += 1
