@@ -87,7 +87,7 @@ class Result(object):
     The Result object is interoperable with python AST objects: when an AST
     object gets added to a Result object, they are converted on-the-fly.
     """
-    __slots__ = ("imports", "stmts", "_expr", "ref", "__used_expr")
+    __slots__ = ("imports", "stmts", "_expr", "__used_expr")
 
     def __init__(self, *args, **kwargs):
         if args:
@@ -97,13 +97,12 @@ class Result(object):
         self.imports = []
         self.stmts = []
         self._expr = None
-        self.ref = None
 
         self.__used_expr = False
 
         # XXX: Make sure we only have AST where we should.
         for kwarg in kwargs:
-            if kwarg not in ["imports", "stmts", "expr", "ref"]:
+            if kwarg not in ["imports", "stmts", "expr"]:
                 raise TypeError(
                     "%s() got an unexpected keyword argument '%s'" % (
                         self.__class__.__name__, kwarg))
@@ -182,15 +181,13 @@ class Result(object):
         result.imports = self.imports + other.imports
         result.stmts = self.stmts + other.stmts
         result.expr = other.expr
-        result.ref = other.ref
         return result
 
     def __str__(self):
-        return "Result(imports=[%s], stmts=[%s], expr=%s, ref=%s)" % (
+        return "Result(imports=[%s], stmts=[%s], expr=%s)" % (
             ", ".join(ast.dump(x) for x in self.imports),
             ", ".join(ast.dump(x) for x in self.stmts),
             ast.dump(self.expr) if self.expr else None,
-            ast.dump(self.ref) if self.ref else None,
         )
 
 
