@@ -352,6 +352,12 @@ class HyASTCompiler(object):
                              col_offset=expression.start_column)
         return ret
 
+    @builds("do")
+    @builds("progn")
+    def compile_progn(self, expression):
+        expression.pop(0)
+        return self._compile_branch(expression)
+
     @builds(HyExpression)
     def compile_expression(self, expression):
         fn = expression[0]
