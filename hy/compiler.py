@@ -96,6 +96,22 @@ class Result(object):
         self.__used_expr = False
         self._expr = value
 
+    @property
+    def force_expr(self):
+        if not self.expr:
+            lineno = 0
+            col_offset = 0
+            if self.stmts:
+                lineno = self.stmts[-1].lineno
+                col_offset = self.stmts[-1].col_offset
+            return ast.Name(id=ast_str("None"),
+                            arg=ast_str("None"),
+                            ctx=ast.Load(),
+                            lineno=lineno,
+                            col_offset=col_offset)
+        else:
+            return self.expr
+
     def expr_as_stmt(self):
         if self.expr:
             return Result() + ast.Expr(lineno=self.expr.lineno,
@@ -141,7 +157,7 @@ def _collect(results):
     ret = Result()
     for result in results:
         ret += result
-        compiled_exprs.append(ret.expr)
+        compiled_exprs.append(ret.force_expr)
     return compiled_exprs, ret
 
 
