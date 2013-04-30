@@ -96,15 +96,13 @@ class Result(object):
         self.__used_expr = False
         self._expr = value
 
-    def as_ast_expr(self):
+    def expr_as_stmt(self):
         if self.expr:
-            return ast.Expr(
-                lineno=self.expr.lineno,
-                col_offset=self.expr.col_offset,
-                value=self.expr,
-            )
+            return Result() + ast.Expr(lineno=self.expr.lineno,
+                                       col_offset=self.expr.col_offset,
+                                       value=self.expr)
         else:
-            return None
+            return Result()
 
     def __add__(self, other):
         if isinstance(other, ast.stmt):
@@ -147,10 +145,24 @@ def _collect(results):
     return compiled_exprs, ret
 
 
+def _branch(results):
+    results = list(results)
+    ret = Result()
+    for result in results[:-1]:
+        ret += result
+        ret += result.expr_as_stmt()
+
+    # We don't want to convert the last expr to a stmt, to use it as the return value
+    for result in results[-1:]:
+        ret += result
+
+    return ret
+
 class HyASTCompiler(object):
 
     def __init__(self):
         self.returnable = False
+        self.anon_fn_count = 0
 
     def is_returnable(self, v):
         return temporary_attribute_value(self, "returnable", v)
@@ -169,15 +181,16 @@ class HyASTCompiler(object):
     def _compile_collect(self, exprs):
         return _collect(self.compile(expr) for expr in exprs)
 
+    def _compile_branch(self, exprs):
+        return _branch(self.compile(expr) for expr in exprs)
+
     @builds(list)
     def compile_raw_list(self, entries):
         ret = Result()
         for x in entries:
             x = self.compile(x)
             ret += x
-            if x.expr:
-                # We want to lift this up as an ast.Expr
-                ret += x.as_ast_expr()
+            ret += x.expr_as_stmt()
         return ret
 
     @builds("print")
@@ -220,6 +233,41 @@ class HyASTCompiler(object):
                           lineno=operator.start_line,
                           col_offset=operator.start_column,
                           values=values)
+        return ret
+
+    @builds("fn")
+    def compile_function_def(self, expression):
+        expression.pop(0)
+
+        self.anon_fn_count += 1
+        name = "_hy_anon_fn_%d" % (self.anon_fn_count)
+
+        arg_list = self.compile(expression.pop(0))
+        body = self._compile_branch(expression)
+        if body.expr:
+            body += ast.Return(value=body.expr,
+                               lineno=body.expr.lineno,
+                               col_offset=body.expr.col_offset)
+        ret = Result()
+        ret += ast.FunctionDef(name=name,
+                               lineno=expression.start_line,
+                               col_offset=expression.start_column,
+                               args=ast.arguments(
+                                   args=[
+                                       ast.Name(
+                                           arg=x.arg, id=x.id,
+                                           ctx=ast.Param(),
+                                           lineno=x.lineno,
+                                           col_offset=x.col_offset)
+                                       for x in arg_list.expr.elts],
+                                   vararg=None,
+                                   kwarg=None,
+                                   kwonlyargs=[],
+                                   kw_defaults=[],
+                                   defaults=[]),
+                               body=body.stmts,
+                               decorator_list=[])
+
         return ret
 
     @builds(HyExpression)
@@ -322,9 +370,8 @@ def hy_compile(tree, root=None):
         tlo = ast.Module
 
     result = compiler.compile(tree)
+    result += result.expr_as_stmt()
 
     body = result.imports + result.stmts
-    if result.expr:
-        body += result.as_ast_expr()
 
     return tlo(body=body)
