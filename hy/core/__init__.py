@@ -25,7 +25,7 @@ import hy.mangle
 
 MACROS = [
     "hy.core.bootstrap",
-    "hy.core.mangles",
+#    "hy.core.mangles",
 ]
 
 
