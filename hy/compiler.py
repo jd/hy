@@ -576,6 +576,24 @@ class HyASTCompiler(object):
 
         return body
 
+    @builds("yield")
+    @checkargs(max=1)
+    def compile_yield_expression(self, expr):
+        expr.pop(0)
+        ret = Result()
+
+        value = None
+        if expr != []:
+            ret += self.compile(expr.pop(0))
+            value = ret.force_expr
+
+        ret += ast.Yield(
+            value=value,
+            lineno=expr.start_line,
+            col_offset=expr.start_column)
+
+        return ret
+
     @builds(",")
     def compile_tuple(self, expr):
         expr.pop(0)
