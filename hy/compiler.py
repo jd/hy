@@ -88,7 +88,7 @@ class Result(object):
     The Result object is interoperable with python AST objects: when an AST
     object gets added to a Result object, it gets converted on-the-fly.
     """
-    __slots__ = ("imports", "stmts", "_expr", "__used_expr")
+    __slots__ = ("imports", "stmts", "temp_variables", "_expr", "__used_expr")
 
     def __init__(self, *args, **kwargs):
         if args:
@@ -97,13 +97,14 @@ class Result(object):
 
         self.imports = []
         self.stmts = []
+        self.temp_variables = []
         self._expr = None
 
         self.__used_expr = False
 
         # XXX: Make sure we only have AST where we should.
         for kwarg in kwargs:
-            if kwarg not in ["imports", "stmts", "expr"]:
+            if kwarg not in ["imports", "stmts", "expr", "temp_variables"]:
                 raise TypeError(
                     "%s() got an unexpected keyword argument '%s'" % (
                         self.__class__.__name__, kwarg))
@@ -161,6 +162,23 @@ class Result(object):
         else:
             return Result()
 
+    def rename(self, new_name):
+        """Rename the Result's temporary variables to a `new_name`.
+
+        We know how to handle ast.Names and ast.FunctionDefs.
+        """
+        new_name = ast_str(new_name)
+        for var in self.temp_variables:
+            if isinstance(var, ast.Name):
+                var.id = new_name
+                var.arg = new_name
+            elif isinstance(var, ast.FunctionDef):
+                var.name = new_name
+            else:
+                raise TypeError("Don't know how to rename a %s!" % (
+                    var.__class__.__name__))
+        self.temp_variables = []
+
     def __add__(self, other):
         # If we add an ast statement, convert it first
         if isinstance(other, ast.stmt):
@@ -186,6 +204,7 @@ class Result(object):
         result.imports = self.imports + other.imports
         result.stmts = self.stmts + other.stmts
         result.expr = other.expr
+        result.temp_variables = other.temp_variables
         return result
 
     def __str__(self):
