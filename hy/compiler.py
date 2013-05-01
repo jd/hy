@@ -594,6 +594,64 @@ class HyASTCompiler(object):
 
         return ret
 
+    @builds("import")
+    def compile_import_expression(self, expr):
+        def _compile_import(expr, module, names=None, importer=ast.Import):
+            if not names:
+                names = [ast.alias(name=ast_str(module), asname=None)]
+            ret = importer(lineno=expr.start_line,
+                           col_offset=expr.start_column,
+                           module=ast_str(module),
+                           names=names,
+                           level=0)
+            return Result() + ret
+
+        expr.pop(0)  # index
+        rimports = Result()
+        while len(expr) > 0:
+            iexpr = expr.pop(0)
+
+            if isinstance(iexpr, HySymbol):
+                rimports += _compile_import(expr, iexpr)
+                continue
+
+            if isinstance(iexpr, HyList) and len(iexpr) == 1:
+                rimports += _compile_import(expr, iexpr.pop(0))
+                continue
+
+            if isinstance(iexpr, HyList) and iexpr:
+                module = iexpr.pop(0)
+                entry = iexpr[0]
+                if isinstance(entry, HyKeyword) and entry == HyKeyword(":as"):
+                    if not len(iexpr) == 2:
+                        raise HyTypeError(iexpr, "garbage after aliased import")
+                    iexpr.pop(0)  # :as
+                    alias = iexpr.pop(0)
+                    names = [ast.alias(name=ast_str(module),
+                                       asname=ast_str(alias))]
+                    rimports += _compile_import(expr, ast_str(module), names)
+                    continue
+
+                if isinstance(entry, HyList):
+                    names = []
+                    while entry:
+                        sym = entry.pop(0)
+                        if entry and isinstance(entry[0], HyKeyword):
+                            entry.pop(0)
+                            alias = ast_str(entry.pop(0))
+                        else:
+                            alias = None
+                        names.append(ast.alias(name=ast_str(sym),
+                                               asname=alias))
+
+                    rimports += _compile_import(expr, module,
+                                                names, ast.ImportFrom)
+                    continue
+
+                raise HyTypeError(entry, "Unknown entry (`%s`) in the HyList" % (entry))
+
+        return rimports
+
     @builds("get")
     @checkargs(2)
     def compile_index_expression(self, expr):
