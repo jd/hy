@@ -788,6 +788,41 @@ class HyASTCompiler(object):
         result += ld_name
         return result
 
+    @builds("foreach")
+    @checkargs(min=1)
+    def compile_for_expression(self, expression):
+        expression.pop(0)  # for
+        target_name, iterable = expression.pop(0)
+        target = self._storeize(self.compile(target_name))
+
+        ret = Result()
+
+        orel = Result()
+        # (foreach [] body (else …))
+        if expression and expression[-1][0] == HySymbol("else"):
+            else_expr = expression.pop()
+            if len(else_expr) > 2:
+                raise HyTypeError(
+                    else_expr,
+                    "`else' statement in `foreach' should have at most one argument")
+            elif len(else_expr) == 2:
+                orel += self.compile(else_expr[1])
+                orel += orel.expr_as_stmt()
+
+        ret += self.compile(iterable)
+
+        body = self._compile_branch(expression)
+        body += body.expr_as_stmt()
+
+        ret += ast.For(lineno=expression.start_line,
+                       col_offset=expression.start_column,
+                       target=target,
+                       iter=ret.force_expr,
+                       body=body.stmts,
+                       orelse=orel.stmts)
+
+        return ret
+
     @builds("while")
     @checkargs(min=2)
     def compile_while_expression(self, expr):
