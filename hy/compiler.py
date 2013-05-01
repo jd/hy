@@ -674,6 +674,20 @@ class HyASTCompiler(object):
                              col_offset=child.start_column)
         return ret
 
+    @builds("-")
+    @checkargs(min=1)
+    def compile_maths_expression_sub(self, expression):
+        if len(expression) > 2:
+            return self.compile_maths_expression(expression)
+        else:
+            arg = expression[1]
+            ret = self.compile(arg)
+            ret += ast.UnaryOp(op=ast.USub(),
+                               operand=ret.force_expr,
+                               lineno=arg.start_line,
+                               col_offset=arg.start_column)
+            return ret
+
     @builds("+=")
     @builds("/=")
     @builds("//=")
