@@ -552,6 +552,47 @@ class HyASTCompiler(object):
                           values=values)
         return ret
 
+    @builds("+")
+    @builds("%")
+    @builds("/")
+    @builds("//")
+    @builds("*")
+    @builds("**")
+    @builds("<<")
+    @builds(">>")
+    @builds("|")
+    @builds("^")
+    @builds("&")
+    @checkargs(min=2)
+    def compile_maths_expression(self, expression):
+        ops = {"+": ast.Add,
+               "/": ast.Div,
+               "//": ast.FloorDiv,
+               "*": ast.Mult,
+               "-": ast.Sub,
+               "%": ast.Mod,
+               "**": ast.Pow,
+               "<<": ast.LShift,
+               ">>": ast.RShift,
+               "|": ast.BitOr,
+               "^": ast.BitXor,
+               "&": ast.BitAnd}
+
+        inv = expression.pop(0)
+        op = ops[inv]
+
+        ret = self.compile(expression.pop(0))
+        for child in expression:
+            left_expr = ret.force_expr
+            ret += self.compile(child)
+            right_expr = ret.force_expr
+            ret += ast.BinOp(left=left_expr,
+                             op=op(),
+                             right=right_expr,
+                             lineno=child.start_line,
+                             col_offset=child.start_column)
+        return ret
+
     @builds(HyExpression)
     def compile_expression(self, expression):
         fn = expression[0]
