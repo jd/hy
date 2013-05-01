@@ -594,6 +594,80 @@ class HyASTCompiler(object):
 
         return ret
 
+    @builds("get")
+    @checkargs(2)
+    def compile_index_expression(self, expr):
+        expr.pop(0)  # index
+        val = self.compile(expr.pop(0))  # target
+        sli = self.compile(expr.pop(0))  # slice
+
+        return val + sli + ast.Subscript(
+            lineno=expr.start_line,
+            col_offset=expr.start_column,
+            value=val.force_expr,
+            slice=ast.Index(value=sli.force_expr),
+            ctx=ast.Load())
+
+    @builds("slice")
+    @checkargs(min=1, max=4)
+    def compile_slice_expression(self, expr):
+        expr.pop(0)  # index
+        val = self.compile(expr.pop(0))  # target
+
+        low = Result()
+        if expr != []:
+            low = self.compile(expr.pop(0))
+
+        high = Result()
+        if expr != []:
+            high = self.compile(expr.pop(0))
+
+        step = Result()
+        if expr != []:
+            step = self.compile(expr.pop(0))
+
+        # use low.expr, high.expr and step.expr to use a literal `None`.
+        return val + low + high + step + ast.Subscript(
+            lineno=expr.start_line,
+            col_offset=expr.start_column,
+            value=val.force_expr,
+            slice=ast.Slice(lower=low.expr,
+                            upper=high.expr,
+                            step=step.expr),
+            ctx=ast.Load())
+
+    @builds("assoc")
+    @checkargs(3)
+    def compile_assoc_expression(self, expr):
+        expr.pop(0)  # assoc
+        # (assoc foo bar baz)  => foo[bar] = baz
+        target = self.compile(expr.pop(0))
+        key = self.compile(expr.pop(0))
+        val = self.compile(expr.pop(0))
+
+        return target + key + val + ast.Assign(
+            lineno=expr.start_line,
+            col_offset=expr.start_column,
+            targets=[
+                ast.Subscript(
+                    lineno=expr.start_line,
+                    col_offset=expr.start_column,
+                    value=target.force_expr,
+                    slice=ast.Index(value=key.force_expr),
+                    ctx=ast.Store())],
+            value=val.force_expr)
+
+    @builds("with_decorator")
+    @checkargs(min=1)
+    def compile_decorate_expression(self, expr):
+        expr.pop(0)  # with-decorator
+        fn = self.compile(expr.pop(-1))
+        if not fn.stmts or not isinstance(fn.stmts[-1], ast.FunctionDef):
+            raise HyTypeError(expr, "Decorated a non-function")
+        decorators, ret = self._compile_collect(expr)
+        fn.stmts[-1].decorator_list = decorators
+        return ret + fn
+
     @builds("with")
     @checkargs(min=2)
     def compile_with_expression(self, expr):
