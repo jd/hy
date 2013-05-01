@@ -542,6 +542,16 @@ class HyASTCompiler(object):
 
         return body
 
+    @builds(",")
+    def compile_tuple(self, expr):
+        expr.pop(0)
+        elts, ret = self._compile_collect(expr)
+        ret += ast.Tuple(elts=elts,
+                         lineno=expr.start_line,
+                         col_offset=expr.start_column,
+                         ctx=ast.Load())
+        return ret
+
     @builds("not")
     @builds("~")
     def compile_unary_operator(self, expression):
