@@ -517,6 +517,19 @@ class HyASTCompiler(object):
 
         return ret
 
+    @builds("assert")
+    @checkargs(1)
+    def compile_assert_expression(self, expr):
+        expr.pop(0)  # assert
+        e = expr.pop(0)
+        ret = self.compile(e)
+        ret += ast.Assert(test=ret.force_expr,
+                          msg=None,
+                          lineno=e.start_line,
+                          col_offset=e.start_column)
+
+        return ret
+
     @builds("lambda")
     def compile_lambda_expression(self, expr):
         expr.pop(0)
