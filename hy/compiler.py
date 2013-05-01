@@ -777,6 +777,23 @@ class HyASTCompiler(object):
         result += ld_name
         return result
 
+    @builds("while")
+    @checkargs(min=2)
+    def compile_while_expression(self, expr):
+        expr.pop(0)  # "while"
+        ret = self.compile(expr.pop(0))
+
+        body = self._compile_branch(expr)
+        body += body.expr_as_stmt()
+
+        ret += ast.While(test=ret.force_expr,
+                         body=body.stmts,
+                         orelse=[],
+                         lineno=expr.start_line,
+                         col_offset=expr.start_column)
+
+        return ret
+
     @builds(HyList)
     def compile_list(self, expression):
         elts, ret = self._compile_collect(expression)
