@@ -756,6 +756,7 @@ class HyASTCompiler(object):
     @builds("def")
     @builds("setf")
     @builds("setv")
+    @checkargs(2)
     def compile_def_expression(self, expression):
         expression.pop(0)
         name = expression.pop(0)
