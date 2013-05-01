@@ -355,6 +355,68 @@ class HyASTCompiler(object):
     def _compile_branch(self, exprs):
         return _branch(self.compile(expr) for expr in exprs)
 
+    def _parse_lambda_list(self, exprs):
+        """ Return FunctionDef parameter values from lambda list."""
+        ret = Result()
+        args = []
+        defaults = []
+        varargs = None
+        kwargs = None
+        lambda_keyword = None
+
+        for expr in exprs:
+
+            if isinstance(expr, HyLambdaListKeyword):
+                if expr not in expr._valid_types:
+                    raise HyCompileError("{0} is not a valid "
+                                         "lambda-keyword.".format(repr(expr)))
+                if expr == "&rest" and lambda_keyword is None:
+                    lambda_keyword = expr
+                elif expr == "&optional":
+                    lambda_keyword = expr
+                elif expr == "&key":
+                    lambda_keyword = expr
+                elif expr == "&kwargs":
+                    lambda_keyword = expr
+                else:
+                    raise HyCompileError("{0} is in an invalid "
+                                         "position.".format(repr(expr)))
+                # we don't actually care about this token, so we set
+                # our state and continue to the next token...
+                continue
+
+            if lambda_keyword is None:
+                args.append(expr)
+            elif lambda_keyword == "&rest":
+                if varargs:
+                    raise HyCompileError("There can only be one "
+                                         "&rest argument")
+                varargs = str(expr)
+            elif lambda_keyword == "&key":
+                if type(expr) != HyDict:
+                    raise TypeError("There can only be one &key "
+                                    "argument")
+                else:
+                    if len(defaults) > 0:
+                        raise HyCompileError("There can only be "
+                                             "one &key argument")
+                    # As you can see, Python has a funny way of
+                    # defining keyword arguments.
+                    for k, v in expr.items():
+                        args.append(k)
+                        ret += self.compile(v)
+                        defaults.append(ret.force_expr)
+            elif lambda_keyword == "&optional":
+                # not implemented yet.
+                pass
+            elif lambda_keyword == "&kwargs":
+                if kwargs:
+                    raise HyCompileError("There can only be one "
+                                         "&kwargs argument")
+                kwargs = str(expr)
+
+        return ret, args, defaults, varargs, kwargs
+
     @builds(list)
     def compile_raw_list(self, entries):
         ret = self._compile_branch(entries)
@@ -553,29 +615,29 @@ class HyASTCompiler(object):
 
         name = self.get_anon_fn()
 
-        arg_list = self.compile(expression.pop(0))
+        ret, args, defaults, stararg, kwargs = self._parse_lambda_list(expression.pop(0))
         body = self._compile_branch(expression)
         if body.expr:
             body += ast.Return(value=body.expr,
                                lineno=body.expr.lineno,
                                col_offset=body.expr.col_offset)
-        ret = Result()
+
         ret += ast.FunctionDef(name=name,
                                lineno=expression.start_line,
                                col_offset=expression.start_column,
                                args=ast.arguments(
                                    args=[
                                        ast.Name(
-                                           arg=x.arg, id=x.id,
+                                           arg=ast_str(x), id=ast_str(x),
                                            ctx=ast.Param(),
-                                           lineno=x.lineno,
-                                           col_offset=x.col_offset)
-                                       for x in arg_list.expr.elts],
-                                   vararg=None,
-                                   kwarg=None,
+                                           lineno=x.start_line,
+                                           col_offset=x.start_column)
+                                       for x in args],
+                                   vararg=stararg,
+                                   kwarg=kwargs,
                                    kwonlyargs=[],
                                    kw_defaults=[],
-                                   defaults=[]),
+                                   defaults=defaults),
                                body=body.stmts,
                                decorator_list=[])
 
