@@ -346,8 +346,7 @@ class HyASTCompiler(object):
         except Exception as e:
             raise HyCompileError(e, sys.exc_info()[2])
 
-        raise HyCompileError(
-            Exception("Unknown type: `%s'" % (str(type(tree)))))
+        raise HyCompileError(Exception("Unknown type: `%s'" % _type))
 
     def _compile_collect(self, exprs):
         return _collect(self.compile(expr) for expr in exprs)
