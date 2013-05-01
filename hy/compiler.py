@@ -37,6 +37,7 @@ from hy.models.dict import HyDict
 from hy.util import str_type
 
 import codecs
+import copy
 import traceback
 import ast
 import sys
@@ -149,6 +150,10 @@ class Result(object):
     def expr(self, value):
         self.__used_expr = False
         self._expr = value
+
+    def is_expr(self):
+        """Check whether I am a pure expression"""
+        return self._expr and not (self.imports or self.stmts)
 
     @property
     def force_expr(self):
@@ -416,6 +421,19 @@ class HyASTCompiler(object):
 
         return ret, args, defaults, varargs, kwargs
 
+    def _storeize(self, name):
+        """Transform `target` into an ast.Store() context"""
+        if isinstance(name, Result):
+            if not name.is_expr():
+                raise TypeError("Can't assign to a non-expr")
+            name = name.expr
+
+        if isinstance(name, ast.Tuple):
+            for x in name.elts:
+                x = self._storeize(x)
+        name.ctx = ast.Store()
+        return name
+
     @builds(list)
     def compile_raw_list(self, entries):
         ret = self._compile_branch(entries)
@@ -622,15 +640,12 @@ class HyASTCompiler(object):
         name = expression.pop(0)
         result = self.compile(expression.pop(0))
 
-        if result.temp_variables:
+        if result.temp_variables and isinstance(name, HyString):
             result.rename(name)
             return result
 
-        ld_name = self.compile(name).force_expr
-        st_name = ast.Name(id=ld_name.id, arg=ld_name.arg,
-                           ctx=ast.Store(),
-                           lineno=ld_name.lineno,
-                           col_offset=ld_name.col_offset)
+        ld_name = self.compile(name)
+        st_name = self._storeize(copy.deepcopy(ld_name))
 
         result += ast.Assign(
             lineno=expression.start_line,
