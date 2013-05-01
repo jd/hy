@@ -465,6 +465,32 @@ class HyASTCompiler(object):
         expression.pop(0)
         return self._compile_branch(expression)
 
+    @builds("def")
+    @builds("setf")
+    @builds("setv")
+    def compile_def_expression(self, expression):
+        expression.pop(0)
+        name = expression.pop(0)
+        result = self.compile(expression.pop(0))
+
+        if result.temp_variables:
+            result.rename(name)
+            return result
+
+        ld_name = self.compile(name).force_expr
+        st_name = ast.Name(id=ld_name.id, arg=ld_name.arg,
+                           ctx=ast.Store(),
+                           lineno=ld_name.lineno,
+                           col_offset=ld_name.col_offset)
+
+        result += ast.Assign(
+            lineno=expression.start_line,
+            col_offset=expression.start_column,
+            targets=[st_name], value=result.force_expr)
+
+        result += ld_name
+        return result
+
     @builds(HyExpression)
     def compile_expression(self, expression):
         fn = expression[0]
