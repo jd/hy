@@ -604,6 +604,41 @@ class HyASTCompiler(object):
                          ctx=ast.Load())
         return ret
 
+    @builds("list_comp")
+    @checkargs(min=2, max=3)
+    def compile_list_comprehension(self, expr):
+        # (list-comp expr (target iter) cond?)
+        expr.pop(0)
+        expression = expr.pop(0)
+        tar_it = iter(expr.pop(0))
+        targets = zip(tar_it, tar_it)
+
+        cond = self.compile(expr.pop(0)) if expr != [] else Result()
+
+        generator_res = Result()
+        generators = []
+        for target, iterable in targets:
+            comp_target = self.compile(target)
+            target = self._storeize(comp_target)
+            generator_res += self.compile(iterable)
+            generators.append(ast.comprehension(
+                target=target,
+                iter=generator_res.force_expr,
+                ifs=[]))
+
+        if cond.expr:
+            generators[-1].ifs.append(cond.expr)
+
+        compiled_expression = self.compile(expression)
+        ret = compiled_expression + generator_res + cond
+        ret += ast.ListComp(
+            lineno=expr.start_line,
+            col_offset=expr.start_column,
+            elt=compiled_expression.force_expr,
+            generators=generators)
+
+        return ret
+
     @builds("kwapply")
     @checkargs(2)
     def compile_kwapply_expression(self, expr):
