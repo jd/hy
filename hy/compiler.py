@@ -225,6 +225,9 @@ class Result(object):
         if isinstance(other, ast.expr):
             return self + Result(expr=other)
 
+        if isinstance(other, ast.excepthandler):
+            return self + Result(stmts=[other])
+
         if not isinstance(other, Result):
             raise TypeError("Can't add %r with non-compiler result %r" % (
                 self, other))
@@ -448,6 +451,210 @@ class HyASTCompiler(object):
     def compile_progn(self, expression):
         expression.pop(0)
         return self._compile_branch(expression)
+
+    @builds("throw")
+    @builds("raise")
+    @checkargs(max=1)
+    def compile_throw_expression(self, expr):
+        expr.pop(0)
+        ret = Result()
+        if expr:
+            ret += self.compile(expr.pop(0))
+
+        # Use ret.expr to get a literal `None`
+        ret += ast.Raise(
+            lineno=expr.start_line,
+            col_offset=expr.start_column,
+            type=ret.expr,
+            exc=ret.expr,
+            inst=None,
+            tback=None,
+            cause=None)
+
+        return ret
+
+    @builds("try")
+    def compile_try_expression(self, expr):
+        expr.pop(0)  # try
+
+        try:
+            body = expr.pop(0)
+        except IndexError:
+            body = []
+
+        # (try something…)
+        body = self.compile(body)
+
+        # XXX we will likely want to make this a tempvar
+        body += body.expr_as_stmt()
+        body = body.stmts
+
+        orelse = []
+        finalbody = []
+        handlers = []
+        handler_results = Result()
+
+        for e in expr:
+            if not len(e):
+                raise HyTypeError(e, "Empty list not allowed in `try'")
+
+            if e[0] in (HySymbol("except"), HySymbol("catch")):
+                handler_results += self.compile(e)
+                handlers.append(handler_results.stmts.pop())
+            elif e[0] == HySymbol("else"):
+                if orelse:
+                    raise HyTypeError(
+                        e,
+                        "`try' cannot have more than one `else'")
+                else:
+                    orelse = self._compile_branch(e[1:])
+                    # XXX tempvar magic
+                    orelse += orelse.expr_as_stmt()
+                    orelse = orelse.stmts
+            elif e[0] == HySymbol("finally"):
+                if finalbody:
+                    raise HyTypeError(
+                        e,
+                        "`try' cannot have more than one `finally'")
+                else:
+                    finalbody = self._compile_branch(e[1:])
+                    # XXX tempvar magic
+                    finalbody += finalbody.expr_as_stmt()
+                    finalbody = finalbody.stmts
+            else:
+                raise HyTypeError(e, "Unknown expression in `try'")
+
+        # Using (else) without (except) is verboten!
+        if orelse and not handlers:
+            raise HyTypeError(
+                e,
+                "`try' cannot have `else' without `except'")
+
+        # (try) or (try BODY)
+        # Generate a default handler for Python >= 3.3 and pypy
+        if not handlers and not finalbody and not orelse:
+            handlers = [ast.ExceptHandler(
+                lineno=expr.start_line,
+                col_offset=expr.start_column,
+                type=None,
+                name=None,
+                body=[ast.Pass(lineno=expr.start_line,
+                               col_offset=expr.start_column)])]
+
+        ret = handler_results
+
+        if sys.version_info[0] >= 3 and sys.version_info[1] >= 3:
+            # Python 3.3 features a merge of TryExcept+TryFinally into Try.
+            return ret + ast.Try(
+                lineno=expr.start_line,
+                col_offset=expr.start_column,
+                body=body,
+                handlers=handlers,
+                orelse=orelse,
+                finalbody=finalbody)
+
+        if finalbody:
+            if handlers:
+                return ret + ast.TryFinally(
+                    lineno=expr.start_line,
+                    col_offset=expr.start_column,
+                    body=[ast.TryExcept(
+                        lineno=expr.start_line,
+                        col_offset=expr.start_column,
+                        handlers=handlers,
+                        body=body,
+                        orelse=orelse)],
+                    finalbody=finalbody)
+
+            return ret + ast.TryFinally(
+                lineno=expr.start_line,
+                col_offset=expr.start_column,
+                body=body,
+                finalbody=finalbody)
+
+        return ret + ast.TryExcept(
+            lineno=expr.start_line,
+            col_offset=expr.start_column,
+            handlers=handlers,
+            body=body,
+            orelse=orelse)
+
+    @builds("catch")
+    @builds("except")
+    def compile_catch_expression(self, expr):
+        catch = expr.pop(0)  # catch
+
+        try:
+            exceptions = expr.pop(0)
+        except IndexError:
+            exceptions = HyList()
+        # exceptions catch should be either:
+        # [[list of exceptions]]
+        # or
+        # [variable [list of exceptions]]
+        # or
+        # [variable exception]
+        # or
+        # [exception]
+        # or
+        # []
+        if not isinstance(exceptions, HyList):
+            raise HyTypeError(exceptions,
+                              "`%s' exceptions list is not a list" % catch)
+        if len(exceptions) > 2:
+            raise HyTypeError(exceptions,
+                              "`%s' exceptions list is too long" % catch)
+
+        # [variable [list of exceptions]]
+        # let's pop variable and use it as name
+        if len(exceptions) == 2:
+            name = exceptions.pop(0)
+            if sys.version_info[0] >= 3:
+                # Python3 features a change where the Exception handler
+                # moved the name from a Name() to a pure Python String type.
+                #
+                # We'll just make sure it's a pure "string", and let it work
+                # it's magic.
+                name = ast_str(name)
+            else:
+                # Python2 requires an ast.Name, set to ctx Store.
+                name = self._storeize(self.compile(name))
+        else:
+            name = None
+
+        try:
+            exceptions_list = exceptions.pop(0)
+        except IndexError:
+            exceptions_list = []
+
+        if isinstance(exceptions_list, list):
+            if len(exceptions_list):
+                # [FooBar BarFoo] → catch Foobar and BarFoo exceptions
+                elts, _type = self._compile_collect(exceptions_list)
+                _type += ast.Tuple(elts=elts,
+                                  lineno=expr.start_line,
+                                  col_offset=expr.start_column,
+                                  ctx=ast.Load())
+            else:
+                # [] → all exceptions catched
+                _type = Result()
+        elif isinstance(exceptions_list, HySymbol):
+            _type = self.compile(exceptions_list)
+        else:
+            raise HyTypeError(exceptions,
+                              "`%s' needs a valid exception list" % catch)
+
+        body = self._compile_branch(expr)
+        # XXX tempvar handling magic
+        body += body.expr_as_stmt()
+
+        # use _type.expr to get a literal `None`
+        return _type + ast.ExceptHandler(
+            lineno=expr.start_line,
+            col_offset=expr.start_column,
+            type=_type.expr,
+            name=name,
+            body=body.stmts)
 
     @builds("if")
     @checkargs(min=2, max=3)
