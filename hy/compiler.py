@@ -35,6 +35,7 @@ from hy.models.dict import HyDict
 from hy.util import str_type
 
 import codecs
+import traceback
 import ast
 import sys
 
@@ -137,6 +138,8 @@ class Result(object):
                             ctx=ast.Load(),
                             lineno=lineno,
                             col_offset=col_offset)
+            # XXX: Likely raise Exception here - this will assertionfail
+            #      pypy since the ast will be out of numerical order.
         else:
             return self.expr
 
@@ -170,7 +173,6 @@ class Result(object):
 
         # Check for expression context clobbering
         if self.expr and not self.__used_expr:
-            import traceback
             traceback.print_stack()
             print("Bad boy clobbered expr %s with %s" % (
                 ast.dump(self.expr),
@@ -256,6 +258,31 @@ class HyASTCompiler(object):
 
     def _compile_branch(self, exprs):
         return _branch(self.compile(expr) for expr in exprs)
+
+    @builds("lambda")
+    def compile_lambda_expression(self, expr):
+        expr.pop(0)
+        sig = expr.pop(0)
+        body = self.compile(expr.pop(0))
+
+        # assert expr is empty
+        body += ast.Lambda(
+            lineno=expr.start_line,
+            col_offset=expr.start_column,
+            args=ast.arguments(args=[
+                ast.Name(arg=ast_str(x), id=ast_str(x),
+                         ctx=ast.Param(),
+                         lineno=x.start_line,
+                         col_offset=x.start_column)
+                for x in sig],
+                vararg=None,
+                kwarg=None,
+                defaults=[],
+                kwonlyargs=[],
+                kw_defaults=[]),
+            body=body.force_expr)
+
+        return body
 
     @builds(list)
     def compile_raw_list(self, entries):
