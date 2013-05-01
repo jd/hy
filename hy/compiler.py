@@ -655,7 +655,8 @@ class HyASTCompiler(object):
 
         name = self.get_anon_fn()
 
-        ret, args, defaults, stararg, kwargs = self._parse_lambda_list(expression.pop(0))
+        arglist = expression.pop(0)
+        ret, args, defaults, stararg, kwargs = self._parse_lambda_list(arglist)
         body = self._compile_branch(expression)
         if body.expr:
             body += ast.Return(value=body.expr,
