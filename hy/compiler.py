@@ -392,11 +392,14 @@ class HyASTCompiler(object):
                                body=body.stmts,
                                decorator_list=[])
 
-        ret += ast.Name(id=name,
-                        arg=name,
-                        ctx=ast.Load(),
-                        lineno=expression.start_line,
-                        col_offset=expression.start_column)
+        ast_name = ast.Name(id=name,
+                            arg=name,
+                            ctx=ast.Load(),
+                            lineno=expression.start_line,
+                            col_offset=expression.start_column)
+
+        ret += Result(expr=ast_name, temp_variables=[ast_name, ret.stmts[-1]])
+
         return ret
 
     @builds("if")
@@ -441,10 +444,12 @@ class HyASTCompiler(object):
                           col_offset=expression.start_column)
 
             # And make our expression context our temp variable
-            ret += ast.Name(id=ast_str(var), arg=ast_str(var),
-                            ctx=ast.Load(),
-                            lineno=expression.start_line,
-                            col_offset=expression.start_column)
+            expr_name = ast.Name(id=ast_str(var), arg=ast_str(var),
+                                 ctx=ast.Load(),
+                                 lineno=expression.start_line,
+                                 col_offset=expression.start_column)
+
+            ret += Result(expr=expr_name, temp_variables=[expr_name, name])
         else:
             # Just make that an if expression
             ret += ast.IfExp(test=ret.force_expr,
