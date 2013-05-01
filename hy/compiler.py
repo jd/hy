@@ -818,6 +818,10 @@ class HyASTCompiler(object):
                                lineno=body.expr.lineno,
                                col_offset=body.expr.col_offset)
 
+        if not body.stmts:
+            body += ast.Pass(lineno=expression.start_line,
+                             col_offset=expression.start_column)
+
         ret += ast.FunctionDef(name=name,
                                lineno=expression.start_line,
                                col_offset=expression.start_column,
