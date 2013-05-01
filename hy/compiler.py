@@ -717,10 +717,10 @@ class HyASTCompiler(object):
             glob = HySymbol(glob).replace(symbol)
             ret = self.compile_symbol(glob)
 
-            ret += ast.Attribute(
+            ret = ast.Attribute(
                 lineno=symbol.start_line,
                 col_offset=symbol.start_column,
-                value=ret.expr,
+                value=ret,
                 attr=ast_str(local),
                 ctx=ast.Load()
             )
