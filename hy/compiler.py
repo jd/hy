@@ -447,6 +447,7 @@ class HyASTCompiler(object):
         return self._compile_branch(expression)
 
     @builds("if")
+    @checkargs(min=2, max=3)
     def compile_if(self, expression):
         expression.pop(0)
         cond = self.compile(expression.pop(0))
@@ -540,12 +541,12 @@ class HyASTCompiler(object):
                           col_offset=e.start_column)
 
     @builds("lambda")
+    @checkargs(2)
     def compile_lambda_expression(self, expr):
         expr.pop(0)
         sig = expr.pop(0)
         body = self.compile(expr.pop(0))
 
-        # assert expr is empty
         body += ast.Lambda(
             lineno=expr.start_line,
             col_offset=expr.start_column,
@@ -576,6 +577,7 @@ class HyASTCompiler(object):
 
     @builds("not")
     @builds("~")
+    @checkargs(1)
     def compile_unary_operator(self, expression):
         ops = {"not": ast.Not,
                "~": ast.Invert}
@@ -590,6 +592,7 @@ class HyASTCompiler(object):
 
     @builds("and")
     @builds("or")
+    @checkargs(min=2)
     def compile_logical_or_and_and_operator(self, expression):
         ops = {"and": ast.And,
                "or": ast.Or}
@@ -783,6 +786,7 @@ class HyASTCompiler(object):
         return ret
 
     @builds("fn")
+    @checkargs(min=1)
     def compile_function_def(self, expression):
         expression.pop(0)
 
