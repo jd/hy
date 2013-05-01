@@ -823,12 +823,31 @@ class HyASTCompiler(object):
     @builds(HyExpression)
     def compile_expression(self, expression):
         fn = expression[0]
+        func = None
         if isinstance(fn, HyString):
             ret = self.compile_atom(fn, expression)
             if ret:
                 return ret
+            if fn.startswith("."):
+                # (.split "test test") -> "test test".split()
 
-        func = self.compile(fn)
+                # Get the attribute name
+                ofn = fn
+                fn = HySymbol(ofn[1:])
+                fn.replace(ofn)
+
+                # Get the object we want to take an attribute from
+                func = self.compile(expression.pop(1))
+
+                # And get the attribute
+                func += ast.Attribute(lineno=fn.start_line,
+                                      col_offset=fn.start_column,
+                                      value=func.force_expr,
+                                      attr=ast_str(fn),
+                                      ctx=ast.Load())
+
+        if not func:
+            func = self.compile(fn)
         args, ret = self._compile_collect(expression[1:])
 
         ret += ast.Call(func=func.expr,
