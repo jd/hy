@@ -287,120 +287,17 @@ class HyASTCompiler(object):
     def _compile_branch(self, exprs):
         return _branch(self.compile(expr) for expr in exprs)
 
-    @builds("lambda")
-    def compile_lambda_expression(self, expr):
-        expr.pop(0)
-        sig = expr.pop(0)
-        body = self.compile(expr.pop(0))
-
-        # assert expr is empty
-        body += ast.Lambda(
-            lineno=expr.start_line,
-            col_offset=expr.start_column,
-            args=ast.arguments(args=[
-                ast.Name(arg=ast_str(x), id=ast_str(x),
-                         ctx=ast.Param(),
-                         lineno=x.start_line,
-                         col_offset=x.start_column)
-                for x in sig],
-                vararg=None,
-                kwarg=None,
-                defaults=[],
-                kwonlyargs=[],
-                kw_defaults=[]),
-            body=body.force_expr)
-
-        return body
-
     @builds(list)
     def compile_raw_list(self, entries):
         ret = self._compile_branch(entries)
         ret += ret.expr_as_stmt()
         return ret
 
-    @builds("print")
-    def compile_print_expression(self, expr):
-        call = expr.pop(0)  # print
-        values, ret = self._compile_collect(expr)
-
-        ret += ast.Print(
-            lineno=expr.start_line,
-            col_offset=expr.start_column,
-            dest=None,
-            values=values,
-            nl=True)
-
-        return ret
-
-    @builds("not")
-    @builds("~")
-    def compile_unary_operator(self, expression):
-        ops = {"not": ast.Not,
-               "~": ast.Invert}
-        operator = expression.pop(0)
-        operand = self.compile(expression.pop(0))
-
-        operand += ast.UnaryOp(op=ops[operator](),
-                               operand=operand.expr,
-                               lineno=operator.start_line,
-                               col_offset=operator.start_column)
-        return operand
-
-    @builds("and")
-    @builds("or")
-    def compile_logical_or_and_and_operator(self, expression):
-        ops = {"and": ast.And,
-               "or": ast.Or}
-        operator = expression.pop(0)
-        values, ret = self._compile_collect(expression)
-
-        ret += ast.BoolOp(op=ops[operator](),
-                          lineno=operator.start_line,
-                          col_offset=operator.start_column,
-                          values=values)
-        return ret
-
-    @builds("fn")
-    def compile_function_def(self, expression):
+    @builds("do")
+    @builds("progn")
+    def compile_progn(self, expression):
         expression.pop(0)
-
-        name = self.get_anon_fn()
-
-        arg_list = self.compile(expression.pop(0))
-        body = self._compile_branch(expression)
-        if body.expr:
-            body += ast.Return(value=body.expr,
-                               lineno=body.expr.lineno,
-                               col_offset=body.expr.col_offset)
-        ret = Result()
-        ret += ast.FunctionDef(name=name,
-                               lineno=expression.start_line,
-                               col_offset=expression.start_column,
-                               args=ast.arguments(
-                                   args=[
-                                       ast.Name(
-                                           arg=x.arg, id=x.id,
-                                           ctx=ast.Param(),
-                                           lineno=x.lineno,
-                                           col_offset=x.col_offset)
-                                       for x in arg_list.expr.elts],
-                                   vararg=None,
-                                   kwarg=None,
-                                   kwonlyargs=[],
-                                   kw_defaults=[],
-                                   defaults=[]),
-                               body=body.stmts,
-                               decorator_list=[])
-
-        ast_name = ast.Name(id=name,
-                            arg=name,
-                            ctx=ast.Load(),
-                            lineno=expression.start_line,
-                            col_offset=expression.start_column)
-
-        ret += Result(expr=ast_name, temp_variables=[ast_name, ret.stmts[-1]])
-
-        return ret
+        return self._compile_branch(expression)
 
     @builds("if")
     def compile_if(self, expression):
@@ -459,11 +356,93 @@ class HyASTCompiler(object):
                              col_offset=expression.start_column)
         return ret
 
-    @builds("do")
-    @builds("progn")
-    def compile_progn(self, expression):
-        expression.pop(0)
-        return self._compile_branch(expression)
+    @builds("print")
+    def compile_print_expression(self, expr):
+        call = expr.pop(0)  # print
+        values, ret = self._compile_collect(expr)
+
+        ret += ast.Print(
+            lineno=expr.start_line,
+            col_offset=expr.start_column,
+            dest=None,
+            values=values,
+            nl=True)
+
+        return ret
+
+    @builds("lambda")
+    def compile_lambda_expression(self, expr):
+        expr.pop(0)
+        sig = expr.pop(0)
+        body = self.compile(expr.pop(0))
+
+        # assert expr is empty
+        body += ast.Lambda(
+            lineno=expr.start_line,
+            col_offset=expr.start_column,
+            args=ast.arguments(args=[
+                ast.Name(arg=ast_str(x), id=ast_str(x),
+                         ctx=ast.Param(),
+                         lineno=x.start_line,
+                         col_offset=x.start_column)
+                for x in sig],
+                vararg=None,
+                kwarg=None,
+                defaults=[],
+                kwonlyargs=[],
+                kw_defaults=[]),
+            body=body.force_expr)
+
+        return body
+
+    @builds("not")
+    @builds("~")
+    def compile_unary_operator(self, expression):
+        ops = {"not": ast.Not,
+               "~": ast.Invert}
+        operator = expression.pop(0)
+        operand = self.compile(expression.pop(0))
+
+        operand += ast.UnaryOp(op=ops[operator](),
+                               operand=operand.expr,
+                               lineno=operator.start_line,
+                               col_offset=operator.start_column)
+        return operand
+
+    @builds("and")
+    @builds("or")
+    def compile_logical_or_and_and_operator(self, expression):
+        ops = {"and": ast.And,
+               "or": ast.Or}
+        operator = expression.pop(0)
+        values, ret = self._compile_collect(expression)
+
+        ret += ast.BoolOp(op=ops[operator](),
+                          lineno=operator.start_line,
+                          col_offset=operator.start_column,
+                          values=values)
+        return ret
+
+    @builds(HyExpression)
+    def compile_expression(self, expression):
+        fn = expression[0]
+        if isinstance(fn, HyString):
+            ret = self.compile_atom(fn, expression)
+            if ret:
+                return ret
+
+        func = self.compile(fn)
+        args, ret = self._compile_collect(expression[1:])
+
+        ret += ast.Call(func=func.expr,
+                        args=args,
+                        keywords=[],
+                        starargs=None,
+                        kwargs=None,
+                        lineno=expression.start_line,
+                        col_offset=expression.start_column)
+
+        return func + ret
 
     @builds("def")
     @builds("setf")
@@ -491,27 +470,6 @@ class HyASTCompiler(object):
         result += ld_name
         return result
 
-    @builds(HyExpression)
-    def compile_expression(self, expression):
-        fn = expression[0]
-        if isinstance(fn, HyString):
-            ret = self.compile_atom(fn, expression)
-            if ret:
-                return ret
-
-        func = self.compile(fn)
-        args, ret = self._compile_collect(expression[1:])
-
-        ret += ast.Call(func=func.expr,
-                        args=args,
-                        keywords=[],
-                        starargs=None,
-                        kwargs=None,
-                        lineno=expression.start_line,
-                        col_offset=expression.start_column)
-
-        return func + ret
-
     @builds(HyList)
     def compile_list(self, expression):
         elts, ret = self._compile_collect(expression)
@@ -519,6 +477,48 @@ class HyASTCompiler(object):
                         ctx=ast.Load(),
                         lineno=expression.start_line,
                         col_offset=expression.start_column)
+        return ret
+
+    @builds("fn")
+    def compile_function_def(self, expression):
+        expression.pop(0)
+
+        name = self.get_anon_fn()
+
+        arg_list = self.compile(expression.pop(0))
+        body = self._compile_branch(expression)
+        if body.expr:
+            body += ast.Return(value=body.expr,
+                               lineno=body.expr.lineno,
+                               col_offset=body.expr.col_offset)
+        ret = Result()
+        ret += ast.FunctionDef(name=name,
+                               lineno=expression.start_line,
+                               col_offset=expression.start_column,
+                               args=ast.arguments(
+                                   args=[
+                                       ast.Name(
+                                           arg=x.arg, id=x.id,
+                                           ctx=ast.Param(),
+                                           lineno=x.lineno,
+                                           col_offset=x.col_offset)
+                                       for x in arg_list.expr.elts],
+                                   vararg=None,
+                                   kwarg=None,
+                                   kwonlyargs=[],
+                                   kw_defaults=[],
+                                   defaults=[]),
+                               body=body.stmts,
+                               decorator_list=[])
+
+        ast_name = ast.Name(id=name,
+                            arg=name,
+                            ctx=ast.Load(),
+                            lineno=expression.start_line,
+                            col_offset=expression.start_column)
+
+        ret += Result(expr=ast_name, temp_variables=[ast_name, ret.stmts[-1]])
+
         return ret
 
     @builds(HyInteger)
