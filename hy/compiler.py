@@ -509,12 +509,23 @@ class HyASTCompiler(object):
         call = expr.pop(0)  # print
         values, ret = self._compile_collect(expr)
 
-        ret += ast.Print(
-            lineno=expr.start_line,
-            col_offset=expr.start_column,
-            dest=None,
-            values=values,
-            nl=True)
+        if sys.version_info[0] >= 3:
+            call = self.compile(call)
+            ret += call
+            ret += ast.Call(func=call.expr,
+                            args=values,
+                            keywords=[],
+                            starargs=None,
+                            kwargs=None,
+                            lineno=expr.start_line,
+                            col_offset=expr.start_column)
+        else:
+            ret += ast.Print(
+                lineno=expr.start_line,
+                col_offset=expr.start_column,
+                dest=None,
+                values=values,
+                nl=True)
 
         return ret
 
