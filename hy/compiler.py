@@ -580,6 +580,37 @@ class HyASTCompiler(object):
                           values=values)
         return ret
 
+    @builds("=")
+    @builds("!=")
+    @builds("<")
+    @builds("<=")
+    @builds(">")
+    @builds(">=")
+    @builds("is")
+    @builds("in")
+    @builds("is_not")
+    @builds("not_in")
+    @checkargs(min=2)
+    def compile_compare_op_expression(self, expression):
+        ops = {"=": ast.Eq, "!=": ast.NotEq,
+               "<": ast.Lt, "<=": ast.LtE,
+               ">": ast.Gt, ">=": ast.GtE,
+               "is": ast.Is, "is_not": ast.IsNot,
+               "in": ast.In, "not_in": ast.NotIn}
+
+        inv = expression.pop(0)
+        op = ops[inv]
+        ops = [op() for x in range(1, len(expression))]
+
+        e = expression[0]
+        exprs, ret = self._compile_collect(expression)
+
+        return ret + ast.Compare(left=exprs[0],
+                                 ops=ops,
+                                 comparators=exprs[1:],
+                                 lineno=e.start_line,
+                                 col_offset=e.start_column)
+
     @builds("+")
     @builds("%")
     @builds("/")
