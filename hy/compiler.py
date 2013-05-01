@@ -621,6 +621,47 @@ class HyASTCompiler(object):
                              col_offset=child.start_column)
         return ret
 
+    @builds("+=")
+    @builds("/=")
+    @builds("//=")
+    @builds("*=")
+    @builds("_=")
+    @builds("%=")
+    @builds("**=")
+    @builds("<<=")
+    @builds(">>=")
+    @builds("|=")
+    @builds("^=")
+    @builds("&=")
+    @checkargs(2)
+    def compile_augassign_expression(self, expression):
+        ops = {"+=": ast.Add,
+               "/=": ast.Div,
+               "//=": ast.FloorDiv,
+               "*=": ast.Mult,
+               "_=": ast.Sub,
+               "%=": ast.Mod,
+               "**=": ast.Pow,
+               "<<=": ast.LShift,
+               ">>=": ast.RShift,
+               "|=": ast.BitOr,
+               "^=": ast.BitXor,
+               "&=": ast.BitAnd}
+
+        op = ops[expression[0]]
+
+        target = self._storeize(self.compile(expression[1]))
+        ret = self.compile(expression[2])
+
+        ret += ast.AugAssign(
+            target=target,
+            value=ret.force_expr,
+            op=op(),
+            lineno=expression.start_line,
+            col_offset=expression.start_column)
+
+        return ret
+
     @builds(HyExpression)
     def compile_expression(self, expression):
         fn = expression[0]
