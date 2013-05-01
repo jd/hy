@@ -21,6 +21,8 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
+from hy.errors import HyError
+
 from hy.models.lambdalist import HyLambdaListKeyword
 from hy.models.expression import HyExpression
 from hy.models.keyword import HyKeyword
@@ -38,6 +40,34 @@ import codecs
 import traceback
 import ast
 import sys
+
+
+class HyCompileError(HyError):
+    def __init__(self, exception, traceback=None):
+        self.exception = exception
+        self.traceback = traceback
+
+    def __str__(self):
+        if isinstance(self.exception, HyTypeError):
+            return str(self.exception)
+        if self.traceback:
+            tb = "".join(traceback.format_tb(self.traceback)).strip()
+        else:
+            tb = "No traceback available. 😟"
+        return("Internal Compiler Bug 😱\n⤷ %s: %s\nCompilation traceback:\n%s"
+               % (self.exception.__class__.__name__,
+                  self.exception, tb))
+
+
+class HyTypeError(TypeError):
+    def __init__(self, expression, message):
+        super(HyTypeError, self).__init__(message)
+        self.expression = expression
+
+    def __str__(self):
+        return (super(HyTypeError, self).__str__() + " (line %s, column %d)"
+                % (self.expression.start_line,
+                   self.expression.start_column))
 
 
 _compile_table = {}
@@ -249,6 +279,35 @@ def _branch(results):
     return ret
 
 
+def _raise_wrong_args_number(expression, error):
+    raise HyTypeError(expression,
+                      error % (expression.pop(0),
+                               len(expression)))
+
+
+def checkargs(exact=None, min=None, max=None):
+    def _dec(fn):
+        def checker(self, expression):
+            if exact is not None and (len(expression) - 1) != exact:
+                _raise_wrong_args_number(
+                    expression, "`%%s' needs %d arguments, got %%d" % exact)
+
+            if min is not None and (len(expression) - 1) < min:
+                _raise_wrong_args_number(
+                    expression,
+                    "`%%s' needs at least %d arguments, got %%d" % (min))
+
+            if max is not None and (len(expression) - 1) > max:
+                _raise_wrong_args_number(
+                    expression,
+                    "`%%s' needs at most %d arguments, got %%d" % (max))
+
+            return fn(self, expression)
+
+        return checker
+    return _dec
+
+
 class HyASTCompiler(object):
 
     def __init__(self):
@@ -274,12 +333,21 @@ class HyASTCompiler(object):
             return None
 
     def compile(self, tree):
-        _type = type(tree)
-        ret = self.compile_atom(_type, tree)
-        if ret:
-            return ret
+        try:
+            _type = type(tree)
+            ret = self.compile_atom(_type, tree)
+            if ret:
+                return ret
+        except HyCompileError:
+            # compile calls compile, so we're going to have multiple raise
+            # nested; so let's re-raise this exception, let's not wrap it in
+            # another HyCompileError!
+            raise
+        except Exception as e:
+            raise HyCompileError(e, sys.exc_info()[2])
 
-        raise TypeError(Exception("Unknown type: `%s'" % str(_type)))
+        raise HyCompileError(
+            Exception("Unknown type: `%s'" % (str(type(tree)))))
 
     def _compile_collect(self, exprs):
         return _collect(self.compile(expr) for expr in exprs)
