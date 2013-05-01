@@ -594,6 +594,41 @@ class HyASTCompiler(object):
 
         return ret
 
+    @builds("with")
+    @checkargs(min=2)
+    def compile_with_expression(self, expr):
+        expr.pop(0)  # with
+
+        args = expr.pop(0)
+        if len(args) > 2 or len(args) < 1:
+            raise HyTypeError(expr, "with needs [arg (expr)] or [(expr)]")
+
+        args.reverse()
+        ctx = self.compile(args.pop(0))
+
+        thing = None
+        if args != []:
+            thing = self._storeize(self.compile(args.pop(0)))
+
+        body = self._compile_branch(expr)
+        body += body.expr_as_stmt()
+
+        if not body.stmts:
+            body += ast.Pass(lineno=expr.start_line,
+                             col_offset=expr.start_column)
+
+        the_with = ast.With(context_expr=ctx.force_expr,
+                            lineno=expr.start_line,
+                            col_offset=expr.start_column,
+                            optional_vars=thing,
+                            body=body.stmts)
+
+        if sys.version_info[0] >= 3 and sys.version_info[1] >= 3:
+            the_with.items = [ast.withitem(context_expr=ctx.force_expr,
+                                           optional_vars=thing)]
+
+        return ctx + the_with
+
     @builds(",")
     def compile_tuple(self, expr):
         expr.pop(0)
