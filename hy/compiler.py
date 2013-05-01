@@ -1009,7 +1009,7 @@ class HyASTCompiler(object):
             if len(else_expr) > 2:
                 raise HyTypeError(
                     else_expr,
-                    "`else' statement in `foreach' should have at most one argument")
+                    "`else' statement in `foreach' is too long")
             elif len(else_expr) == 2:
                 orel += self.compile(else_expr[1])
                 orel += orel.expr_as_stmt()
