@@ -149,9 +149,12 @@ class Result(object):
         This is useful when we want to use the stored expression in a
         statement context (for instance in a code branch).
 
+        We drop bare names because they can't have any side effect, and they
+        make the generated code ugly.
+
         If there is no expression context, return an empty result.
         """
-        if self.expr:
+        if self.expr and not isinstance(self.expr, ast.Name):
             return Result() + ast.Expr(lineno=self.expr.lineno,
                                        col_offset=self.expr.col_offset,
                                        value=self.expr)
