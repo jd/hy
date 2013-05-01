@@ -314,11 +314,8 @@ class HyASTCompiler(object):
 
     @builds(list)
     def compile_raw_list(self, entries):
-        ret = Result()
-        for x in entries:
-            x = self.compile(x)
-            ret += x
-            ret += x.expr_as_stmt()
+        ret = self._compile_branch(entries)
+        ret += ret.expr_as_stmt()
         return ret
 
     @builds("print")
