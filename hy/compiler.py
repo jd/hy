@@ -264,16 +264,22 @@ class HyASTCompiler(object):
         self.anon_fn_count += 1
         return "_hy_anon_fn_%d" % self.anon_fn_count
 
-    def compile(self, tree):
-        _type = type(tree)
-        if _type in _compile_table:
-            ret = _compile_table[_type](self, tree)
+    def compile_atom(self, atom_type, atom):
+        if atom_type in _compile_table:
+            ret = _compile_table[atom_type](self, atom)
             if not isinstance(ret, Result):
                 ret = Result() + ret
             return ret
+        else:
+            return None
 
-        raise TypeError(Exception("Unknown type: `%s'" % (
-            str(type(tree)))))
+    def compile(self, tree):
+        _type = type(tree)
+        ret = self.compile_atom(_type, tree)
+        if ret:
+            return ret
+
+        raise TypeError(Exception("Unknown type: `%s'" % str(_type)))
 
     def _compile_collect(self, exprs):
         return _collect(self.compile(expr) for expr in exprs)
@@ -461,8 +467,9 @@ class HyASTCompiler(object):
     def compile_expression(self, expression):
         fn = expression[0]
         if isinstance(fn, HyString):
-            if fn in _compile_table:
-                return _compile_table[fn](self, expression)
+            ret = self.compile_atom(fn, expression)
+            if ret:
+                return ret
 
         func = self.compile(fn)
         args, ret = self._compile_collect(expression[1:])
