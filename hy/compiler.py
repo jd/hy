@@ -46,6 +46,7 @@ import sys
 
 from collections import defaultdict
 
+
 class HyCompileError(HyError):
     def __init__(self, exception, traceback=None):
         self.exception = exception
@@ -489,7 +490,8 @@ class HyASTCompiler(object):
                  HyList(contents)]
             ).replace(form)
         elif isinstance(form, HySymbol):
-            return imports, HyExpression([HySymbol(name), HyString(form)]).replace(form)
+            return imports, HyExpression([HySymbol(name),
+                                          HyString(form)]).replace(form)
         return imports, HyExpression([HySymbol(name), form]).replace(form)
 
     @builds("quote")
@@ -686,9 +688,9 @@ class HyASTCompiler(object):
                 # [FooBar BarFoo] → catch Foobar and BarFoo exceptions
                 elts, _type = self._compile_collect(exceptions_list)
                 _type += ast.Tuple(elts=elts,
-                                  lineno=expr.start_line,
-                                  col_offset=expr.start_column,
-                                  ctx=ast.Load())
+                                   lineno=expr.start_line,
+                                   col_offset=expr.start_column,
+                                   ctx=ast.Load())
             else:
                 # [] → all exceptions catched
                 _type = Result()
@@ -888,7 +890,8 @@ class HyASTCompiler(object):
                 entry = iexpr[0]
                 if isinstance(entry, HyKeyword) and entry == HyKeyword(":as"):
                     if not len(iexpr) == 2:
-                        raise HyTypeError(iexpr, "garbage after aliased import")
+                        raise HyTypeError(iexpr,
+                                          "garbage after aliased import")
                     iexpr.pop(0)  # :as
                     alias = iexpr.pop(0)
                     names = [ast.alias(name=ast_str(module),
@@ -912,7 +915,8 @@ class HyASTCompiler(object):
                                                 names, ast.ImportFrom)
                     continue
 
-                raise HyTypeError(entry, "Unknown entry (`%s`) in the HyList" % (entry))
+                raise HyTypeError(entry,
+                                  "Unknown entry (`%s`) in the HyList" % (entry))
 
         return rimports
 
