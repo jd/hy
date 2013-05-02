@@ -44,6 +44,7 @@ import traceback
 import ast
 import sys
 
+from collections import defaultdict
 
 class HyCompileError(HyError):
     def __init__(self, exception, traceback=None):
@@ -128,7 +129,7 @@ class Result(object):
             # emulate kw-only args for future bits.
             raise TypeError("Yo: Hacker: don't pass me real args, dingus")
 
-        self.imports = []
+        self.imports = defaultdict(set)
         self.stmts = []
         self.temp_variables = []
         self._expr = None
@@ -241,7 +242,7 @@ class Result(object):
 
         # Fairly obvious addition
         result = Result()
-        result.imports = self.imports + other.imports
+        result.imports = other.imports
         result.stmts = self.stmts + other.stmts
         result.expr = other.expr
         result.temp_variables = other.temp_variables
@@ -324,6 +325,7 @@ class HyASTCompiler(object):
         self.returnable = False
         self.anon_fn_count = 0
         self.anon_var_count = 0
+        self.imports = defaultdict(set)
 
     def get_anon_var(self):
         self.anon_var_count += 1
@@ -332,6 +334,27 @@ class HyASTCompiler(object):
     def get_anon_fn(self):
         self.anon_fn_count += 1
         return "_hy_anon_fn_%d" % self.anon_fn_count
+
+    def update_imports(self, result):
+        """Retrieve the imports from the result object"""
+        for mod in result.imports:
+            self.imports[mod].update(result.imports[mod])
+
+    def imports_as_stmts(self, expr):
+        """Convert the Result's imports to statements"""
+        ret = Result()
+        for module, names in self.imports.items():
+            ret += self.compile([
+                HyExpression([
+                    HySymbol("import"),
+                    HyList([
+                        HySymbol(module),
+                        HyList([HySymbol(name) for name in sorted(names)])
+                    ])
+                ]).replace(expr)
+            ])
+        self.imports = defaultdict(set)
+        return ret.stmts
 
     def compile_atom(self, atom_type, atom):
         if atom_type in _compile_table:
@@ -348,6 +371,7 @@ class HyASTCompiler(object):
             _type = type(tree)
             ret = self.compile_atom(_type, tree)
             if ret:
+                self.update_imports(ret)
                 return ret
         except HyCompileError:
             # compile calls compile, so we're going to have multiple raise
@@ -1435,14 +1459,17 @@ class HyASTCompiler(object):
 
 def hy_compile(tree, root=None):
     " Compile a HyObject tree into a Python AST tree. "
-    compiler = HyASTCompiler()
+
     tlo = root
     if root is None:
         tlo = ast.Module
 
-    result = compiler.compile(tree)
-    result += result.expr_as_stmt()
+    body = []
+    if tree:
+        compiler = HyASTCompiler()
+        result = compiler.compile(tree)
+        result += result.expr_as_stmt()
 
-    body = result.imports + result.stmts
+        body = compiler.imports_as_stmts(tree[0]) + result.stmts
 
     return tlo(body=body)
