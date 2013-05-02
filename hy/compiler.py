@@ -502,6 +502,19 @@ class HyASTCompiler(object):
         ret.add_imports("hy", imports)
         return ret
 
+    @builds("eval")
+    @checkargs(exact=1)
+    def compile_eval(self, expr):
+        expr.pop(0)
+
+        ret = self.compile(HyExpression([
+            HySymbol("hy_eval")] + expr + [
+                HyExpression([HySymbol("locals")])]).replace(expr))
+
+        ret.add_imports("hy.importer", ["hy_eval"])
+
+        return ret
+
     @builds("do")
     @builds("progn")
     def compile_progn(self, expression):
