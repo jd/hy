@@ -470,6 +470,32 @@ class HyASTCompiler(object):
         ret += ret.expr_as_stmt()
         return ret
 
+    def _render_quoted_form(self, form):
+        name = form.__class__.__name__
+        imports = [name]
+
+        if isinstance(form, HyList):
+            contents = []
+            for x in form:
+                form_imports, form_contents = self._render_quoted_form(x)
+                imports += form_imports
+                contents.append(form_contents)
+            return imports, HyExpression(
+                [HySymbol(name),
+                 HyList(contents)]
+            ).replace(form)
+        elif isinstance(form, HySymbol):
+            return imports, HyExpression([HySymbol(name), HyString(form)]).replace(form)
+        return imports, HyExpression([HySymbol(name), form]).replace(form)
+
+    @builds("quote")
+    @checkargs(exact=1)
+    def compile_quote(self, entries):
+        imports, stmts = self._render_quoted_form(entries[1])
+        ret = self.compile(stmts)
+        ret.imports["hy"].update(imports)
+        return ret
+
     @builds("do")
     @builds("progn")
     def compile_progn(self, expression):
