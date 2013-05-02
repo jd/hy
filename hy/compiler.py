@@ -154,6 +154,10 @@ class Result(object):
         self.__used_expr = False
         self._expr = value
 
+    def add_imports(self, mod, imports):
+        """Autoimport `imports` from `mod`"""
+        self.imports[mod].update(imports)
+
     def is_expr(self):
         """Check whether I am a pure expression"""
         return self._expr and not (self.imports or self.stmts)
@@ -493,7 +497,7 @@ class HyASTCompiler(object):
     def compile_quote(self, entries):
         imports, stmts = self._render_quoted_form(entries[1])
         ret = self.compile(stmts)
-        ret.imports["hy"].update(imports)
+        ret.add_imports("hy", imports)
         return ret
 
     @builds("do")
