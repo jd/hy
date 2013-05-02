@@ -544,6 +544,9 @@ class HyASTCompiler(object):
         # XXX we will likely want to make this a tempvar
         body += body.expr_as_stmt()
         body = body.stmts
+        if not body:
+            body = [ast.Pass(lineno=expr.start_line,
+                             col_offset=expr.start_column)]
 
         orelse = []
         finalbody = []
@@ -704,13 +707,18 @@ class HyASTCompiler(object):
         # XXX tempvar handling magic
         body += body.expr_as_stmt()
 
+        body = body.stmts
+        if not body:
+            body = [ast.Pass(lineno=expr.start_line,
+                             col_offset=expr.start_column)]
+
         # use _type.expr to get a literal `None`
         return _type + ast.ExceptHandler(
             lineno=expr.start_line,
             col_offset=expr.start_column,
             type=_type.expr,
             name=name,
-            body=body.stmts)
+            body=body)
 
     @builds("if")
     @checkargs(min=2, max=3)
