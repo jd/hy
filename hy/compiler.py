@@ -936,8 +936,10 @@ class HyASTCompiler(object):
                                                 names, ast.ImportFrom)
                     continue
 
-                raise HyTypeError(entry,
-                                  "Unknown entry (`%s`) in the HyList" % (entry))
+                raise HyTypeError(
+                    entry,
+                    "Unknown entry (`%s`) in the HyList" % (entry)
+                )
 
         return rimports
 
