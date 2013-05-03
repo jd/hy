@@ -40,7 +40,6 @@ from hy.core import process
 from hy.util import str_type
 
 import codecs
-import copy
 import traceback
 import ast
 import sys
@@ -458,17 +457,30 @@ class HyASTCompiler(object):
         return ret, args, defaults, varargs, kwargs
 
     def _storeize(self, name):
-        """Transform `name` in-place into an ast.Store() context"""
+        """Return a new `name` object with an ast.Store() context"""
         if isinstance(name, Result):
             if not name.is_expr():
                 raise TypeError("Can't assign to a non-expr")
             name = name.expr
 
-        if isinstance(name, ast.Tuple):
+        if isinstance(name, (ast.Tuple, ast.List)):
+            typ = type(name)
+            new_elts = []
             for x in name.elts:
-                self._storeize(x)
-        name.ctx = ast.Store()
-        return name
+                new_elts.append(self._storeize(x))
+            new_name = typ(elts=new_elts)
+        elif isinstance(name, ast.Name):
+            new_name = ast.Name(id=name.id, arg=name.arg)
+        elif isinstance(name, ast.Subscript):
+            new_name = ast.Subscript(value=name.value, slice=name.slice)
+        elif isinstance(name, ast.Attribute):
+            new_name = ast.Attribute(value=name.value, attr=name.attr)
+        else:
+            raise TypeError("Can't assign to a %s object" % type(name))
+
+        new_name.ctx = ast.Store()
+        ast.copy_location(new_name, name)
+        return new_name
 
     @builds(list)
     def compile_raw_list(self, entries):
@@ -1333,7 +1345,7 @@ class HyASTCompiler(object):
             return result
 
         ld_name = self.compile(name)
-        st_name = self._storeize(copy.deepcopy(ld_name))
+        st_name = self._storeize(ld_name)
 
         result += ast.Assign(
             lineno=expression.start_line,
