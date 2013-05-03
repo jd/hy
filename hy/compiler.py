@@ -457,7 +457,7 @@ class HyASTCompiler(object):
         return ret, args, defaults, varargs, kwargs
 
     def _storeize(self, name):
-        """Transform `target` into an ast.Store() context"""
+        """Transform `name` in-place into an ast.Store() context"""
         if isinstance(name, Result):
             if not name.is_expr():
                 raise TypeError("Can't assign to a non-expr")
@@ -465,7 +465,7 @@ class HyASTCompiler(object):
 
         if isinstance(name, ast.Tuple):
             for x in name.elts:
-                x = self._storeize(x)
+                self._storeize(x)
         name.ctx = ast.Store()
         return name
 
