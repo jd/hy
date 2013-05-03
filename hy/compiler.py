@@ -1512,19 +1512,34 @@ class HyASTCompiler(object):
         return ret
 
 
-def hy_compile(tree, root=None):
-    " Compile a HyObject tree into a Python AST tree. "
+def hy_compile(tree, root=ast.Module, get_expr=False):
+    """
+    Compile a HyObject tree into a Python AST Module.
 
-    tlo = root
-    if root is None:
-        tlo = ast.Module
+    If `get_expr` is True, return a tuple (module, last_expression), where
+    `last_expression` is the.
+    """
 
     body = []
+    expr = None
+
     if tree:
         compiler = HyASTCompiler()
         result = compiler.compile(tree)
-        result += result.expr_as_stmt()
+        expr = result.force_expr
 
-        body = compiler.imports_as_stmts(tree[0]) + result.stmts
+        if not get_expr:
+            result += result.expr_as_stmt()
 
-    return tlo(body=body)
+        if isinstance(tree, list):
+            spoof_tree = tree[0]
+        else:
+            spoof_tree = tree
+        body = compiler.imports_as_stmts(spoof_tree) + result.stmts
+
+    ret = root(body=body)
+    if get_expr:
+        expr = ast.Expression(body=expr)
+        ret = (ret, expr)
+
+    return ret
